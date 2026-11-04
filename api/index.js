@@ -1,6 +1,7 @@
 // api/index.js
 
-const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const SERPER_URL = "https://google.serper.dev/search";
 const MAX_HISTORY = 6;
 const MAX_TEXT_LENGTH = 1024;
@@ -18,7 +19,7 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     return res.status(200).json({
       ok: true,
-      service: "alice-gemini-serper",
+      service: "alice-openrouter-serper",
     });
   }
 
@@ -63,12 +64,12 @@ export default async function handler(req, res) {
 
   let answer;
   try {
-    if (!process.env.GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not set in Vercel env variables");
+    if (!process.env.OPENROUTER_API_KEY) {
+      throw new Error("OPENROUTER_API_KEY is not set in Vercel env variables");
     }
-    answer = await callGemini(prompt);
+    answer = await callOpenRouter(prompt);
   } catch (e) {
-    console.error("Gemini error:", e.message);
+    console.error("OpenRouter error:", e.message);
     answer = "Извините, я не смогла обработать запрос. Попробуйте переформулировать.";
   }
 
@@ -169,29 +170,43 @@ async function serperSearch(query) {
   );
 }
 
-async function callGemini(prompt) {
-  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+async function callOpenRouter(prompt) {
+  const model = process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+  const siteUrl =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : "https://alice-skill.vercel.app";
 
-  const res = await fetch(`${url}?key=${process.env.GEMINI_API_KEY}`, {
+  const res = await fetch(OPENROUTER_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": siteUrl,
+      "X-Title": "Alice Skill",
+    },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 150,
-      },
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Ты — голосовой ассистент Алиса. Отвечай кратко (1–2 предложения), дружелюбно и по-русски.",
+        },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.7,
+      max_tokens: 150,
     }),
   });
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`Gemini ${res.status}: ${errText.slice(0, 500)}`);
+    throw new Error(`OpenRouter ${res.status}: ${errText.slice(0, 500)}`);
   }
 
   const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const text = data.choices?.[0]?.message?.content;
   return text ? text.trim() : "Не удалось получить ответ.";
 }
 
@@ -200,7 +215,7 @@ function buildPrompt(history, searchSnippet) {
     .map((m) => `${m.role === "user" ? "Пользователь" : "Ассистент"}: ${m.text}`)
     .join("\n");
 
-  let prompt = `Ты — голосовой ассистент Алиса. Отвечай кратко (1–2 предложения), дружелюбно и по-русски.\n\nИстория диалога:\n${dialog}\n\n`;
+  let prompt = `История диалога:\n${dialog}\n\n`;
   if (searchSnippet) {
     prompt += `Актуальная информация из поиска:\n${searchSnippet}\n\n`;
   }
