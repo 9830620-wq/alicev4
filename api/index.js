@@ -144,7 +144,12 @@ export function safeHistory(input) {
 }
 
 // ---------- Внутренние функции ----------
-
+console.log(
+  "OPENROUTER_API_KEY diagnostic:",
+  process.env.OPENROUTER_API_KEY
+    ? `set (starts with "${process.env.OPENROUTER_API_KEY.slice(0, 8)}...", length=${process.env.OPENROUTER_API_KEY.length})`
+    : "NOT SET"
+);
 async function serperSearch(query) {
   const res = await fetch(SERPER_URL, {
     method: "POST",
